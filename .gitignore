@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# WorkBuddy 本地数据
+.workbuddy/
+
+# 本地产出与状态（不提交仓库）
+output/
+pipeline/state.json
+pipeline/config.yaml.bak
+
+# 敏感文件（密钥不入库）
+# config.yaml 含真实密钥，不提交；仓库用 config.example.yaml 作模板
+pipeline/config.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

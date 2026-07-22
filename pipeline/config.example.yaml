@@ -1,0 +1,39 @@
+# ============================================================
+# 微信公众号每日摘要流水线 · 配置模板
+# 复制本文件为 config.yaml，填入你自己的值后运行。
+# 在 GitHub Actions 中，密钥从 Secrets（环境变量）注入，无需填入本文件。
+# ============================================================
+
+# ---- 1. RSS 文章源（全部免费，无需任何付费服务）-------------------
+feeds:
+  - name: "36氪"
+    url: "https://36kr.com/feed"
+  - name: "虎嗅APP"
+    url: "https://www.huxiu.com/rss/0.xml"
+  - name: "Wind万得"
+    url: "TODO_REPLACE_WITH_WIND_RSS"
+    # 去 wechatrss.waytomaster.com 免费注册后搜索"Wind万得"获取 RSS 链接
+
+# ---- 2. 大模型（AI 标题 + 论文式摘要 + 分类）---------------------
+# 本地运行：填入真实 api_key；GitHub Actions：通过 DEEPSEEK_API_KEY 环境变量注入
+llm:
+  enabled: true
+  base_url: "https://api.deepseek.com/v1"
+  api_key: ""                        # 本地填真实 key；CI 留空（从环境变量读）
+  model: "deepseek-chat"
+
+# ---- 3. 推送渠道 --------------------------------------------------
+wechat:
+  type: wecom
+  wecom:
+    mode: webhook
+    webhook: ""                      # 本地填真实 webhook；CI 留空（从环境变量读）
+    corpid: ""
+    corpsecret: ""
+    agentid: ""
+    touser: "@all"
+
+# ---- 4. 运行参数 --------------------------------------------------
+settings:
+  lookback_hours: 24      # 只收录最近 N 小时内发布的文章（CI 无持久状态，靠此防重复）
+  max_articles: 20        # 单期最多收录篇数

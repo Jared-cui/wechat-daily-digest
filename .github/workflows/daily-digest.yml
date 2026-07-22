@@ -1,0 +1,54 @@
+# 公众号每日摘要流水线 - GitHub Actions
+# 每天北京时间 08:30 自动运行（UTC 00:30）
+# 采集 RSS -> DeepSeek AI 阅读+分类 -> 生成 HTML -> 企业微信推送
+
+name: 公众号每日摘要
+
+on:
+  schedule:
+    # UTC 00:30 = 北京时间 08:30
+    - cron: '30 0 * * *'
+  # 支持手动触发（用于测试）
+  workflow_dispatch:
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 生成配置文件
+        run: cp pipeline/config.example.yaml pipeline/config.yaml
+
+      - name: 恢复去重缓存
+        uses: actions/cache@v4
+        with:
+          path: pipeline/state.json
+          key: digest-state-${{ github.run_id }}
+          restore-keys: |
+            digest-state-
+
+      - name: 运行摘要流水线
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: https://api.deepseek.com/v1
+          DEEPSEEK_MODEL: deepseek-chat
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: python pipeline/run_digest.py
+
+      - name: 上传 HTML 日报
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-html
+          path: output/*.html
+          retention-days: 30
