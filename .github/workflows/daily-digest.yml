@@ -45,10 +45,26 @@ jobs:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
         run: python pipeline/run_digest.py
 
-      - name: 上传 HTML 日报
+      - name: 上传 HTML 日报（Artifact）
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: digest-html
           path: output/*.html
           retention-days: 30
+
+      - name: 准备 GitHub Pages 文件
+        if: always()
+        run: |
+          # 复制最新日报为 index.html（Pages 首页始终展示当天内容）
+          ls output/digest_*.html 2>/dev/null | sort | tail -1 | xargs -I{} cp {} output/index.html
+          # 生成归档索引页
+          python pipeline/gen_index.py
+
+      - name: 部署到 GitHub Pages
+        if: always()
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: output
+          keep_files: true  # 保留历史日报，形成归档

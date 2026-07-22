@@ -89,6 +89,23 @@ python pipeline/test_push.py             # 一键测试推送（填好 webhook �
 - HTML 日报自动上传为 Artifact，保留 30 天。
 - 支持手动触发（Actions 页面 → Run workflow）。
 
+### GitHub Pages（每日 HTML 日报在线查看）
+- 每次 Actions 运行后，HTML 日报自动部署到 GitHub Pages（`gh-pages` 分支）。
+- 访问地址：`https://jared-cui.github.io/wechat-daily-digest/`（首页 `index.html` 始终为最新日报）。
+- 历史归档：`https://jared-cui.github.io/wechat-daily-digest/archive.html`
+- **前提**：仓库需设为 Public（免费 GitHub Pages），或账户有 GitHub Pro（私有仓库 Pages）。
+- **启用步骤**：GitHub 仓库 → Settings → Pages → Source 选 `Deploy from branch` → 选 `gh-pages` 分支 → Save。
+
 ### WorkBuddy 本地自动化（备选）
 - WorkBuddy 定时任务（ID `automation-1784725980164`），每天 08:30 本机运行。
 - 需电脑开机 + WorkBuddy 运行中。
+
+## 多设备同步
+
+| 内容 | 同步方式 | 说明 |
+|------|----------|------|
+| 项目代码 | GitHub 仓库 | 任何电脑 `git clone` 即可 |
+| 项目上下文 | `PROJECT_CONTEXT.md`（入库） | 任何 WorkBuddy 实例可读 |
+| WorkBuddy 对话记录 | 云端自动同步 | 任何登录设备可查看历史对话 |
+| 每日 HTML 日报 | GitHub Pages | 手机浏览器/WorkBuddy小程序均可打开 |
+| Actions 运行记录 | GitHub Actions 页面 | 任何浏览器可查看 |
