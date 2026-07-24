@@ -10,10 +10,17 @@ on:
     - cron: '30 0 * * *'
   # 支持手动触发（用于测试）
   workflow_dispatch:
+  # push 触发（仅 workflow 文件变更时，用于验证 CI 链路）
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/daily-digest.yml'
 
 jobs:
   digest:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # peaceiris/actions-gh-pages 需要写权限推送 gh-pages 分支
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
