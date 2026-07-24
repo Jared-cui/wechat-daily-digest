@@ -5,6 +5,9 @@ import os
 
 files = sorted(glob.glob("output/digest_*.html"), reverse=True)
 
+# 确保输出目录存在
+os.makedirs("output", exist_ok=True)
+
 links = "\n".join(
     '<li><a href="{name}">{date}</a></li>'.format(
         name=os.path.basename(f),
@@ -13,6 +16,7 @@ links = "\n".join(
     for f in files
 )
 
+# 用 % 格式化避免 CSS 花括号被 .format() 误解析
 html = """<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -32,10 +36,10 @@ a:hover{text-decoration:underline}
 <p>最新日报：<a href="index.html">点击查看</a></p>
 <h2>历史归档</h2>
 <ul>
-{links}
+%s
 </ul>
 </body>
-</html>""".format(links=links)
+</html>""" % links
 
 with open("output/archive.html", "w", encoding="utf-8") as f:
     f.write(html)

@@ -10,11 +10,17 @@ on:
     - cron: '30 0 * * *'
   # 支持手动触发（用于测试）
   workflow_dispatch:
-  # push 触发（仅 workflow 文件变更时，用于验证 CI 链路）
+  # push 触发（仅关键文件变更时，用于验证 CI 链路）
   push:
     branches: [main]
     paths:
       - '.github/workflows/daily-digest.yml'
+      - 'pipeline/gen_index.py'
+      - 'pipeline/run_digest.py'
+
+env:
+  # 显式启用 Node.js 24，消除 Node.js 20 弃用警告
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   digest:
@@ -44,6 +50,7 @@ jobs:
           restore-keys: |
             digest-state-
 
+      # ===== 核心步骤：采集 + AI 摘要 + 企业微信推送 =====
       - name: 运行摘要流水线
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -51,6 +58,9 @@ jobs:
           DEEPSEEK_MODEL: deepseek-chat
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
         run: python pipeline/run_digest.py
+
+      # ===== 以下为 GitHub Pages 部署步骤 =====
+      # 即使 Pages 未配置或部署失败，也不影响核心流水线（企业微信推送已在上一步完成）
 
       - name: 上传 HTML 日报（Artifact）
         if: always()
@@ -62,15 +72,19 @@ jobs:
 
       - name: 准备 GitHub Pages 文件
         if: always()
+        continue-on-error: true
         run: |
+          # 确保输出目录存在
+          mkdir -p output
           # 复制最新日报为 index.html（Pages 首页始终展示当天内容）
-          ls output/digest_*.html 2>/dev/null | sort | tail -1 | xargs -I{} cp {} output/index.html
+          ls output/digest_*.html 2>/dev/null | sort | tail -1 | xargs -I{} cp {} output/index.html 2>/dev/null || true
           # 生成归档索引页
           python pipeline/gen_index.py
 
       - name: 部署到 GitHub Pages
         if: always()
-        uses: peaceiris/actions-gh-pages@v3
+        continue-on-error: true
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: output
