@@ -9,7 +9,9 @@ feeds:
   - name: "36氪"
     url: "https://36kr.com/feed"
   - name: "虎嗅APP"
-    url: "https://www.huxiu.com/rss/0.xml"
+    url: "https://rss.huxiu.com/"           # 虎嗅官方 RSS 专用域名（已验证可用）
+    # 备用源（若主源挂掉，取消注释下行并注释上行）：
+    # url: "https://rsshub.umzzz.com/huxiu/article"   # RSSHub 公共镜像
   - name: "Wind万得"
     url: "TODO_REPLACE_WITH_WIND_RSS"
     # 去 wechatrss.waytomaster.com 免费注册后搜索"Wind万得"获取 RSS 链接

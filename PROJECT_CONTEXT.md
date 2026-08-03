@@ -1,6 +1,6 @@
 # 项目上下文 — 公众号每日摘要流水线
 
-> 本文件供任何 WorkBuddy 实例快速理解项目全貌。更新于 2026-07-23。
+> 本文件供任何 WorkBuddy 实例快速理解项目全貌。更新于 2026-08-03。
 
 ## 定位
 
@@ -13,8 +13,8 @@
 | 文章来源 | 免费 RSS（媒体站官方 RSS + wechatrss.waytomaster.com 免费额度） | 不依赖付费服务 |
 | AI 提炼 | DeepSeek（api.deepseek.com/v1, model=deepseek-chat） | 逐篇生成 AI标题+论文式摘要+分类+重要性+一句话 |
 | 推送方式 | 企业微信群机器人 webhook | 稳定，不受 48h 互动限制 |
-| 运行平台 | GitHub Actions（云端，每天 08:30 BJ） | 电脑关机也能跑 |
-| 本地备选 | WorkBuddy 自动化（ID automation-1784725980164） | 需电脑开机 |
+| 运行平台 | **GitHub Actions 为主**（云端，每天 08:30 BJ） | 电脑关机也能跑 |
+| 本地备选 | **WorkBuddy 自动化**（ID automation-1785765420226，每天 09:00 BJ） | GitHub 故障时兜底；需电脑开机 |
 | 仓库 | Jared-cui/wechat-daily-digest（私有） | 密钥通过 GitHub Secrets 注入 |
 
 ## 关键约束
@@ -22,7 +22,7 @@
 1. **企业微信 markdown 单条上限 4096 字节** → 必须分块推送（已实现 `_blocks_for_wecom`）。
 2. **DeepSeek 402** = 余额不足（非代码问题），需充值。
 3. **webhook 地址**必须是 `qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...` 格式。
-4. **虎嗅 RSS** 在沙箱超时（用户本机正常）；Wind万得无免费 RSS，待用户从 wechatrss.waytomaster.com 获取。
+4. **虎嗅 RSS**：原 `www.huxiu.com/rss/0.xml` 超时，已替换为 `rss.huxiu.com/`（官方专用域名，141篇，已验证可用）。备用：`rsshub.umzzz.com/huxiu/article`（RSSHub 公共镜像，20篇）。
 
 ## 文件结构
 
@@ -48,7 +48,8 @@ requirements.txt       # feedparser / requests / pyyaml
 | 公众号 | RSS 链接 | 状态 |
 |--------|----------|------|
 | 36氪 | `https://36kr.com/feed` | 免费，已验证 |
-| 虎嗅APP | `https://www.huxiu.com/rss/0.xml` | 免费，沙箱超时/本机正常 |
+| 虎嗅APP | `https://rss.huxiu.com/` | 官方专用域名，141篇，已验证 |
+| 虎嗅APP（备用） | `https://rsshub.umzzz.com/huxiu/article` | RSSHub 公共镜像，20篇 |
 | Wind万得 | `TODO_REPLACE_WITH_WIND_RSS` | 待用户从 wechatrss.waytomaster.com 获取 |
 
 ## AI 分类体系
