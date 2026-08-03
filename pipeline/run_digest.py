@@ -39,11 +39,11 @@ _h = __import__("html")
 esc = lambda s: _h.escape(str(s or ""))
 
 # ---------- 分类体系 ----------
-CATEGORIES = ["金融财经", "科技互联网", "产业商业", "宏观政策", "其他"]
+CATEGORIES = ["金融财经", "信息技术", "商业企业", "宏观政策", "其他"]
 CAT_EMOJI = {
     "金融财经": "📊",
-    "科技互联网": "💻",
-    "产业商业": "🏭",
+    "信息技术": "💻",
+    "商业企业": "🏭",
     "宏观政策": "📋",
     "其他": "📌",
 }
@@ -92,8 +92,8 @@ def normalize_category(cat):
             return c
     # 常见同义词
     syn = {"金融": "金融财经", "财经": "金融财经", "股市": "金融财经", "证券": "金融财经",
-           "科技": "科技互联网", "互联网": "科技互联网", "AI": "科技互联网", "技术": "科技互联网",
-           "产业": "产业商业", "商业": "产业商业", "企业": "产业商业",
+           "科技": "信息技术", "互联网": "信息技术", "AI": "信息技术", "技术": "信息技术", "IT": "信息技术",
+           "产业": "商业企业", "商业": "商业企业", "企业": "商业企业", "消费": "商业企业",
            "宏观": "宏观政策", "政策": "宏观政策", "政府": "宏观政策"}
     for k, v in syn.items():
         if k in cat:
@@ -176,6 +176,57 @@ def parse_feed(name, raw):
     return items
 
 
+# ---------- AI 预筛选：从大量文章中选出最具新闻价值的 N 篇 ----------
+def prescreen_articles(articles, llm_cfg, max_count=20):
+    """AI 预筛选：从大量候选文章中选出最具新闻价值的 N 篇。
+    返回 (selected_articles, reasoning_string)。"""
+    if len(articles) <= max_count:
+        return articles, "文章数未超上限，全部保留"
+
+    if not (llm_cfg and llm_cfg.get("enabled") and requests):
+        log(f"  LLM 不可用，取前 {max_count} 篇")
+        return articles[:max_count], "LLM不可用，取前N篇"
+
+    article_list = "\n\n".join(
+        f"[{i}] {a['author']} | {a['title']}\n    {plain_text(a['content'], 120)}"
+        for i, a in enumerate(articles)
+    )
+
+    sys_p = (
+        f"你是资深财经科技主编。以下有 {len(articles)} 篇候选文章，请从中选出最重要的 {max_count} 篇。\n"
+        "选择标准（按优先级）：\n"
+        "1. 重大政策/市场变动（降息/降准/监管/地缘/突发）→ 最优先\n"
+        "2. 行业趋势性事件或突破性技术进展 → 次优先\n"
+        "3. 独家深度分析或头部公司重大动态 → 再次\n"
+        "4. 一般资讯/软文/广告/低信息量 → 不选\n\n"
+        "输出 JSON：\n"
+        '{"selected": [0, 3, 5, ...], "reasoning": "筛选逻辑简述（20字内）"}\n'
+        "只输出 JSON，不要多余文字。"
+    )
+
+    user_p = f"候选文章：\n\n{article_list}"
+
+    try:
+        r = requests.post(
+            f"{llm_cfg['base_url'].rstrip('/')}/chat/completions",
+            headers={"Authorization": f"Bearer {llm_cfg['api_key']}", "Content-Type": "application/json"},
+            json={"model": llm_cfg.get("model", "deepseek-chat"),
+                  "messages": [{"role": "system", "content": sys_p}, {"role": "user", "content": user_p}],
+                  "response_format": {"type": "json_object"}, "temperature": 0.2},
+            timeout=60)
+        obj = json.loads(r.json()["choices"][0]["message"]["content"])
+        indices = obj.get("selected", [])
+        reasoning = obj.get("reasoning", "")
+        selected = [articles[i] for i in indices if 0 <= i < len(articles)]
+        if len(selected) > max_count:
+            selected = selected[:max_count]
+        log(f"  AI 预筛选：{len(articles)} → {len(selected)} 篇（{reasoning}）")
+        return selected, reasoning
+    except Exception as ex:
+        log(f"  AI 预筛选失败，取前 {max_count} 篇：{ex}")
+        return articles[:max_count], ""
+
+
 # ---------- AI 阅读：AI 标题 + 论文式摘要 + 分类 ----------
 def summarize(article, llm_cfg):
     if not (llm_cfg and llm_cfg.get("enabled") and requests):
@@ -186,7 +237,7 @@ def summarize(article, llm_cfg):
         '  "ai_title": "由你凝练生成的标题（8-20字，概括文章主旨，不要照抄原标题）",\n'
         '  "refined": "一段类似论文摘要的中文总结（150-220字）：先点明背景/问题，再给出核心观点或发现，最后给出结论或启示，连贯成一段",\n'
         '  "one_liner": "一句话核心摘要（15-30字，用于推送列表，精炼抓人）",\n'
-        '  "category": "分类，必须是以下之一：金融财经、科技互联网、产业商业、宏观政策、其他",\n'
+        '  "category": "分类，必须是以下之一：金融财经、信息技术、商业企业、宏观政策、其他",\n'
         '  "importance": "重要 或 一般（重大政策/突发/行业转折=重要，日常资讯/分析=一般）",\n'
         '  "tags": ["1到3个主题标签"]\n'
         "}\n只输出 JSON，不要多余文字。"
@@ -304,31 +355,50 @@ def render_html(digest):
     hl_html = "".join(f"<li>{esc(h)}</li>" for h in highlights)
     grouped = digest.get("grouped", {})
 
-    # 按分类生成 section
+    # 统计重要/一般文章数
+    imp_count = sum(1 for a in digest["articles"] if a.get("importance") == "重要")
+    gen_count = len(digest["articles"]) - imp_count
+
+    # 按分类生成 section，重要文章全卡片、一般文章精简卡片
     sections = []
     for cat in CATEGORIES:
         arts = grouped.get(cat, [])
         if not arts:
             continue
         emoji = CAT_EMOJI.get(cat, "")
-        cards = []
+        imp_cards = []
+        gen_cards = []
         for a in arts:
-            star = '<span class="star">★ 重要</span>' if a.get("importance") == "重要" else ""
-            tags = "".join(f'<span class="tag">{esc(t)}</span>' for t in a.get("tags", []))
             title = a.get("ai_title") or a.get("title")
-            refined = a.get("refined") or a.get("summary") or ""
-            cards.append(f"""
-        <article class="card">
-          <h3>{esc(title)}</h3>
-          <div class="meta">{star} 来源：{esc(a['author'])} · <a href="{esc(a['link'])}">阅读原文</a></div>
-          <p class="refined">{esc(refined)}</p>
-          <div class="tags">{tags}</div>
+            one_liner = a.get("one_liner") or ""
+            link = esc(a["link"])
+            if a.get("importance") == "重要":
+                star = '<span class="star">★ 重要</span>'
+                tags_html = "".join(f'<span class="tag">{esc(t)}</span>' for t in a.get("tags", []))
+                refined = a.get("refined") or a.get("summary") or ""
+                imp_cards.append(f"""
+        <article class="card card-important">
+          <div class="card-inner">
+            <h3><a href="{link}" target="_blank">{esc(title)}</a></h3>
+            <div class="meta">{star} 来源：{esc(a['author'])}</div>
+            <p class="refined">{esc(refined)}</p>
+            <div class="tags">{tags_html}</div>
+          </div>
         </article>""")
-        cards_html = "\n".join(cards)
+            else:
+                gen_cards.append(f"""
+        <article class="card card-brief">
+          <span class="brief-dot">•</span>
+          <span class="brief-title"><a href="{link}" target="_blank">{esc(title)}</a></span>
+          <span class="brief-oneliner">{esc(one_liner)}</span>
+        </article>""")
+        imp_html = "\n".join(imp_cards)
+        gen_html = "\n".join(gen_cards)
         sections.append(f"""
       <section class="cat-section">
         <div class="cat-header">{emoji} {cat}<span class="cat-count">{len(arts)} 篇</span></div>
-        {cards_html}
+        {imp_html}
+        {gen_html}
       </section>""")
     sections_html = "\n".join(sections)
 
@@ -344,7 +414,7 @@ def render_html(digest):
   <header>
     <div class="date">{digest['date']}</div>
     <h1>📮 今日 AI 阅读总结</h1>
-    <p class="sub">{esc(digest['headline'])}</p>
+    <p class="sub">{esc(digest['headline'])} · 精选 {len(digest['articles'])} 篇（重点 {imp_count} 篇）</p>
   </header>
 
   <section class="synthesis">
@@ -356,11 +426,11 @@ def render_html(digest):
 
   {sections_html}
 
-  <footer>由 WorkBuddy 自动生成 · 共 {len(digest['articles'])} 篇</footer>
+  <footer>由 WorkBuddy 自动生成 · 共 {len(digest['articles'])} 篇（🌟 重点 {imp_count} · 📄 速览 {gen_count}）</footer>
 </div>
 <style>
   body{{margin:0;background:#f2f3f5;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;color:#1f1f1f;}}
-  .wrap{{max-width:680px;margin:0 auto;padding:16px;}}
+  .wrap{{max-width:720px;margin:0 auto;padding:16px;}}
   header{{text-align:center;padding:18px 0 4px;}}
   .date{{color:#fa5151;font-weight:700;letter-spacing:1px;}}
   h1{{font-size:22px;margin:6px 0;}}
@@ -374,14 +444,25 @@ def render_html(digest):
   .cat-section{{margin:16px 0;}}
   .cat-header{{font-size:17px;font-weight:700;color:#1a1a1a;padding:10px 14px;background:#fff;border-radius:10px;border-left:4px solid #fa5151;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}}
   .cat-count{{font-size:12px;color:#999;font-weight:400;background:#f2f3f5;padding:2px 8px;border-radius:10px;}}
-  .card{{background:#fff;border-radius:14px;padding:14px 16px;margin:10px 0;box-shadow:0 2px 10px rgba(0,0,0,.04);}}
-  .card h3{{font-size:16px;margin:0 0 4px;line-height:1.4;color:#1a1a1a;}}
+  /* 重要文章卡片 - 全幅展示 */
+  .card-important{{background:#fff;border-radius:14px;margin:10px 0;box-shadow:0 2px 10px rgba(250,81,81,.08);border-left:4px solid #fa5151;}}
+  .card-important .card-inner{{padding:14px 16px;}}
+  .card-important h3{{font-size:16px;margin:0 0 4px;line-height:1.4;}}
+  .card-important h3 a{{color:#1a1a1a;text-decoration:none;}}
+  .card-important h3 a:hover{{color:#fa5151;}}
   .meta{{font-size:12px;color:#999;margin-bottom:6px;}}
   .meta a{{color:#576b95;text-decoration:none;}}
   .star{{color:#fa5151;font-weight:600;margin-right:6px;font-size:11px;background:#fff0f0;padding:1px 6px;border-radius:8px;}}
-  .refined{{font-size:14px;color:#333;line-height:1.75;margin:6px 0 8px;}}
+  .refined{{font-size:14px;color:#333;line-height:1.8;margin:8px 0;}}
   .tags{{margin-top:4px;}}
   .tag{{display:inline-block;background:#f2f3f5;color:#576b95;font-size:12px;padding:2px 8px;border-radius:10px;margin-right:6px;}}
+  /* 一般文章卡片 - 精简一行 */
+  .card-brief{{background:#fff;border-radius:10px;margin:6px 0;padding:8px 14px;box-shadow:0 1px 4px rgba(0,0,0,.03);display:flex;align-items:baseline;gap:8px;font-size:14px;line-height:1.5;}}
+  .brief-dot{{color:#ccc;font-weight:700;flex-shrink:0;}}
+  .brief-title{{flex-shrink:0;}}
+  .brief-title a{{color:#1a1a1a;text-decoration:none;font-weight:500;}}
+  .brief-title a:hover{{color:#fa5151;}}
+  .brief-oneliner{{color:#888;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
   footer{{text-align:center;color:#bbb;font-size:12px;padding:20px 0;}}
 </style>
 </body>
@@ -445,7 +526,7 @@ def _blocks_for_wecom(digest):
         head.append(f"> {h}")
     blocks.append("\n".join(head))
 
-    # 后续块：按分类列出，每篇只一行（标题 — 一句话 + 链接）
+    # 后续块：按分类列出，重要文章完整（标题+一句话+链接），一般文章精简（标题+链接）
     for cat in CATEGORIES:
         arts = grouped.get(cat, [])
         if not arts:
@@ -453,10 +534,12 @@ def _blocks_for_wecom(digest):
         emoji = CAT_EMOJI.get(cat, "")
         cat_lines = [f"### {emoji} {cat}（{len(arts)}篇）"]
         for a in arts:
-            star = "⭐" if a.get("importance") == "重要" else "•"
             title = a.get("ai_title") or a.get("title")
-            one_liner = a.get("one_liner") or (a.get("refined") or "")[:25]
-            cat_lines.append(f"{star} **{title}**\n{one_liner}\n[→阅读]({a['link']})")
+            if a.get("importance") == "重要":
+                one_liner = a.get("one_liner") or (a.get("refined") or "")[:25]
+                cat_lines.append(f"⭐ **{title}**\n{one_liner}\n[→阅读]({a['link']})")
+            else:
+                cat_lines.append(f"• **{title}** [→阅读]({a['link']})")
         cat_text = "\n".join(cat_lines)
 
         # 如果加上当前块会超限，先保存当前块再开新块
@@ -542,7 +625,7 @@ DEMO_ARTICLES = [
         "ai_title": "推理成本一年降约九成：AI从奢侈品走向水电煤",
         "refined": "背景：过去一年主流大模型每token推理成本断崖式下降。核心发现：驱动来自推理芯片产能释放叠加模型蒸馏与量化，单位成本降幅约90%；中小团队得以跑起可用的大模型应用，创业门槛被显著拉低，并倒逼应用层创新，Agent与端侧部署成为新热点。结论：成本下探正在把AI从'奢侈品'变为'基础设施'，但需警惕低价伴随的服务质量与合规缩水。",
         "one_liner": "推理成本一年降90%，AI从奢侈品走向基础设施",
-        "category": "科技互联网",
+        "category": "信息技术",
         "importance": "重要",
         "tags": ["大模型", "成本", "趋势"],
     },
@@ -575,7 +658,7 @@ DEMO_ARTICLES = [
         "ai_title": "RAG不准的三处基本功：切分、混合召回与重排",
         "refined": "背景：许多RAG系统检索质量不佳，常被归咎于模型。核心发现：根因往往在工程基本功——切分粒度太粗导致语义混杂、仅用向量召回缺BM25混合使长尾query失效、缺少重排（rerank）让相关结果沉底。结论：应先以行为数据评估召回率再谈生成，把基础环节做扎实，而非一味更换模型。",
         "one_liner": "RAG不准的根因在切分、混合召回与重排三处基本功",
-        "category": "科技互联网",
+        "category": "信息技术",
         "importance": "一般",
         "tags": ["RAG", "检索", "工程"],
     },
@@ -586,7 +669,7 @@ DEMO_ARTICLES = [
         "ai_title": "白酒渠道库存高企，经销商资金链承压",
         "refined": "背景：白酒行业渠道库存持续攀升，部分品牌库存周期超过6个月。核心发现：经销商资金链承压，部分已开始低价甩货，导致终端价格倒挂。厂商虽然控量稳价，但效果有限。结论：白酒行业进入深度调整期，去库存可能持续2-3个季度，期间品牌分化将进一步加剧。",
         "one_liner": "白酒渠道库存高企，经销商资金链承压",
-        "category": "产业商业",
+        "category": "商业企业",
         "importance": "一般",
         "tags": ["白酒", "库存", "消费"],
     },
@@ -667,7 +750,13 @@ def main():
                     seen.add(guid)
             except Exception as ex:
                 log(f"  采集「{f['name']}」失败，已跳过：{ex}")
-        log(f"采集到 {len(articles)} 篇新文章（lookback={lookback}h），开始 AI 阅读与总结...")
+        log(f"采集到 {len(articles)} 篇新文章（lookback={lookback}h）")
+        maxn = (cfg.get("settings") or {}).get("max_articles", 20)
+        # AI 预筛选：从大量文章中选出最具新闻价值的 N 篇
+        if len(articles) > maxn:
+            log(f"文章数({len(articles)})超上限({maxn})，启动 AI 预筛选...")
+        articles, screening_reason = prescreen_articles(articles, cfg.get("llm"), maxn)
+        log(f"筛选后保留 {len(articles)} 篇，开始 AI 逐篇深度阅读与总结...")
         for i, a in enumerate(articles, 1):
             a.update(summarize(a, cfg.get("llm")))
             cat = a.get("category", "其他")
