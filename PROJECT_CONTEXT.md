@@ -11,7 +11,8 @@
 | 维度 | 决策 | 理由 |
 |------|------|------|
 | 文章来源 | 免费 RSS（媒体站官方 RSS + wechatrss.waytomaster.com 免费额度） | 不依赖付费服务 |
-| AI 提炼 | DeepSeek（api.deepseek.com/v1, model=deepseek-chat） | 逐篇生成 AI标题+论文式摘要+分类+重要性+一句话 |
+| AI 提炼 | DeepSeek（api.deepseek.com/v1, model=deepseek-chat） | AI预筛选(精选≤20篇) → 逐篇生成AI标题+论文式摘要+分类+重要性+一句话；重要文章完整分析，一般文章精简速览 |
+| 分类体系 | 金融财经 / 信息技术 / 商业企业 / 宏观政策 / 其他 | 按权重分配内容篇幅 |
 | 推送方式 | 企业微信群机器人 webhook | 稳定，不受 48h 互动限制 |
 | 运行平台 | **GitHub Actions 为主**（云端，每天 08:30 BJ） | 电脑关机也能跑 |
 | 本地备选 | **WorkBuddy 自动化**（ID automation-1785765420226，每天 09:00 BJ） | GitHub 故障时兜底；需电脑开机 |
@@ -22,7 +23,9 @@
 1. **企业微信 markdown 单条上限 4096 字节** → 必须分块推送（已实现 `_blocks_for_wecom`）。
 2. **DeepSeek 402** = 余额不足（非代码问题），需充值。
 3. **webhook 地址**必须是 `qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...` 格式。
-4. **虎嗅 RSS**：原 `www.huxiu.com/rss/0.xml` 超时，已替换为 `rss.huxiu.com/`（官方专用域名，141篇，已验证可用）。备用：`rsshub.umzzz.com/huxiu/article`（RSSHub 公共镜像，20篇）。
+4. **虎嗅 RSS**：已修复，主源 `rss.huxiu.com/`（141篇），备用 `rsshub.umzzz.com/huxiu/article`（20篇）；Wind万得仍待配置。
+5. **AI 预筛选**：采集文章数超 max_articles(20) 时，先 AI 预筛选选出最具新闻价值 N 篇，再逐篇深度总结，节省 API 成本。
+6. **加权布局**：重要文章（重要性=重要）全卡片含论文摘要+标签；一般文章仅一行标题+一句话速览。
 
 ## 文件结构
 
