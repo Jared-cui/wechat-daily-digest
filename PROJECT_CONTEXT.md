@@ -1,21 +1,22 @@
-# 项目上下文 — 公众号每日摘要流水线
+# 项目上下文 — 每日资讯 AI 精读流水线
 
-> 本文件供任何 WorkBuddy 实例快速理解项目全貌。更新于 2026-08-03。
+> 本文件供任何 WorkBuddy 实例快速理解项目全貌。更新于 2026-08-10。
 
 ## 定位
 
-微信公众号「每日文章 AI 阅读摘要」自动化：采集 RSS → DeepSeek AI 分类+精炼 → 生成 HTML 日报 → 企业微信群机器人推送。
+每日定时采集 4 家媒体（虎嗅APP/36氪/晚点LatePost/钛媒体）**前一日 08:40 ~ 当日 08:40（北京时间）** 的推送 → DeepSeek AI 逐篇精读（AI标题+摘要+关键词+读后感+含金量评分）→ 分板块按含金量倒序生成 HTML 日报（≤30 篇）→ **每天 08:45 企业微信群机器人推送**。
 
 ## 架构决策
 
 | 维度 | 决策 | 理由 |
 |------|------|------|
-| 文章来源 | 免费 RSS（媒体站官方 RSS + wechatrss.waytomaster.com 免费额度） | 不依赖付费服务 |
-| AI 提炼 | DeepSeek（api.deepseek.com/v1, model=deepseek-chat） | AI预筛选(精选≤20篇) → 逐篇生成AI标题+论文式摘要+分类+重要性+一句话；重要文章完整分析，一般文章精简速览 |
-| 分类体系 | 金融财经 / 信息技术 / 商业企业 / 宏观政策 / 其他 | 按权重分配内容篇幅 |
-| 推送方式 | 企业微信群机器人 webhook | 稳定，不受 48h 互动限制 |
-| 运行平台 | **GitHub Actions 为主**（云端，每天 08:30 BJ） | 电脑关机也能跑 |
-| 本地备选 | **WorkBuddy 自动化**（ID automation-1785765420226，每天 09:00 BJ） | GitHub 故障时兜底；需电脑开机 |
+| 文章来源 | 免费 RSS：虎嗅 `rss.huxiu.com/`、36氪 `36kr.com/feed`、晚点 `rsshub.app/latepost`、钛媒体 `tmtpost.com/rss` | 全部官方/公共免费源，已验证 |
+| 采集窗口 | 固定窗口 [昨日 08:40, 今日 08:40]（北京时间，`settings.window_end`） | 覆盖"前一日 8:40-当日 8:40 的推送" |
+| AI 精读 | DeepSeek（api.deepseek.com/v1, model=deepseek-chat） | 超 30 篇先 AI 预筛选；逐篇生成 AI标题/摘要(≤200字)/关键词/读后感(≤200字)/分类/重要性/含金量分(0-100) |
+| 排序规则 | 分板块（金融财经/信息技术/商业企业/宏观政策/其他），**板块内按含金量分降序，板块间按最高分降序** | 阅读顺序即含金量递减 |
+| 推送方式 | 企业微信群机器人 webhook | 稳定，不受 48h 互动限制；推送为精简列表（标题+一句话+链接+含金量分） |
+| 运行平台 | **GitHub Actions 为主**（云端，每天 08:45 BJ） | 电脑关机也能跑 |
+| 本地备选 | **WorkBuddy 自动化**（ID automation-1785765420226，每天 08:45 BJ） | GitHub 故障时兜底；需电脑开机 |
 | 仓库 | Jared-cui/wechat-daily-digest（私有） | 密钥通过 GitHub Secrets 注入 |
 
 ## 关键约束
@@ -23,9 +24,11 @@
 1. **企业微信 markdown 单条上限 4096 字节** → 必须分块推送（已实现 `_blocks_for_wecom`）。
 2. **DeepSeek 402** = 余额不足（非代码问题），需充值。
 3. **webhook 地址**必须是 `qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...` 格式。
-4. **虎嗅 RSS**：已修复，主源 `rss.huxiu.com/`（141篇），备用 `rsshub.umzzz.com/huxiu/article`（20篇）；Wind万得仍待配置。
-5. **AI 预筛选**：采集文章数超 max_articles(20) 时，先 AI 预筛选选出最具新闻价值 N 篇，再逐篇深度总结，节省 API 成本。
-6. **加权布局**：重要文章（重要性=重要）全卡片含论文摘要+标签；一般文章仅一行标题+一句话速览。
+4. **采集窗口是固定窗口**，不是滚动窗口：`compute_window()` 计算 [昨日 08:40, 今日 08:40]（北京时间），所有源的时间统一转北京时间比较；晚点 RSS 为 UTC 时间，钛媒体为 +0800，均已处理。
+5. **AI 预筛选**：采集文章数超 max_articles(30) 时，先 AI 预筛选选出最具新闻价值 N 篇，再逐篇深度精读，节省 API 成本。
+6. **每篇文章字段**：ai_title（AI提炼标题，不用原标题）/ refined（摘要≤200字）/ keywords（2-4个关键词）/ takeaway（AI读后感≤200字）/ score（含金量0-100）/ importance（重要/一般）。HTML 按板块+含金量倒序渲染。
+7. **板块顺序**：`group_by_category()` 返回 (grouped, cat_order)，cat_order 按板块内最高含金量降序，空板块排最后。
+8. **网络抖动处理**：`fetch_feed()` 每个源重试 3 次（间隔 2s）；`_llm_chat()` 所有 LLM 调用（预筛选/逐篇总结/总览）统一重试 3 次（指数退避，timeout 90s），402 余额不足不重试。单个源失败自动跳过，不影响其他源。
 
 ## 文件结构
 
@@ -40,7 +43,7 @@ output/                # HTML 日报产出（gitignored）
   digest_YYYY-MM-DD.html
 state.json             # 去重状态（gitignored，CI 用 cache 持久化）
 .github/workflows/
-  daily-digest.yml     # GitHub Actions 定时任务
+  daily-digest.yml     # GitHub Actions 定时任务（每天 08:45 BJ）
 PROJECT_CONTEXT.md     # 本文件 — 项目上下文（入库）
 README.md              # 完整说明文档
 requirements.txt       # feedparser / requests / pyyaml
@@ -48,18 +51,20 @@ requirements.txt       # feedparser / requests / pyyaml
 
 ## 当前 RSS 源
 
-| 公众号 | RSS 链接 | 状态 |
+| 媒体 | RSS 链接 | 状态 |
 |--------|----------|------|
-| 36氪 | `https://36kr.com/feed` | 免费，已验证 |
 | 虎嗅APP | `https://rss.huxiu.com/` | 官方专用域名，141篇，已验证 |
 | 虎嗅APP（备用） | `https://rsshub.umzzz.com/huxiu/article` | RSSHub 公共镜像，20篇 |
-| Wind万得 | `TODO_REPLACE_WITH_WIND_RSS` | 待用户从 wechatrss.waytomaster.com 获取 |
+| 36氪 | `https://www.36kr.com/feed` | ⚠️ 必须带 www（2026-08-11 修复：裸域 `36kr.com/feed` 被反爬 JS 挑战拦截，返回空） |
+| 晚点LatePost | `https://rsshub.app/latepost` | RSSHub 路由，UTC 时间，已验证；本机网络可能超时，GitHub Actions 海外正常 |
+| 钛媒体 | `https://www.tmtpost.com/rss` | 官方免费，已验证；仅保留最近 16 条 |
 
 ## AI 分类体系
 
-- 金融财经 📊 / 科技互联网 💻 / 产业商业 🏭 / 宏观政策 📋 / 其他 📌
-- 重要性：⭐重要（重大政策/突发/行业转折）/ 一般
-- 推送格式：分类列表 + ⭐标记 + AI标题 + 一句话 + 链接
+- 板块：金融财经 📊 / 信息技术 💻 / 商业企业 🏭 / 宏观政策 📋 / 其他 📌
+- 重要性：⭐重磅（重大政策/突发/行业转折）/ 一般
+- 含金量分：0-100 整数，综合重磅程度/行业影响/信息增量评定，板块内按此降序
+- 推送格式：板块列表 + ⭐/含金量分 + AI标题 + 一句话 + 链接
 
 ## GitHub Secrets
 
@@ -78,10 +83,10 @@ requirements.txt       # feedparser / requests / pyyaml
 ## 本地运行
 
 ```bash
-python pipeline/run_digest.py            # 正常模式
+python pipeline/run_digest.py            # 正常模式（08:45 定时任务同款命令）
 python pipeline/run_digest.py --no-push  # 只生成 HTML、不推送
 python pipeline/run_digest.py --demo     # 演示模式（内置样例）
 python pipeline/test_push.py             # 一键测试推送链路
 ```
 
-依赖环境：`feedparser` / `requests` / `pyyaml`
+依赖环境：`C:\Users\CUI\.workbuddy\binaries\python\envs\default`（feedparser / requests / pyyaml）

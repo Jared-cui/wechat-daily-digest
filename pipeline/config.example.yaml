@@ -5,16 +5,18 @@
 # ============================================================
 
 # ---- 1. RSS 文章源（全部免费，无需任何付费服务）-------------------
+# 采集窗口：前一日 08:40 ~ 当日 08:40（北京时间），见下方 settings.window_end
 feeds:
-  - name: "36氪"
-    url: "https://36kr.com/feed"
   - name: "虎嗅APP"
     url: "https://rss.huxiu.com/"           # 虎嗅官方 RSS 专用域名（已验证可用）
     # 备用源（若主源挂掉，取消注释下行并注释上行）：
     # url: "https://rsshub.umzzz.com/huxiu/article"   # RSSHub 公共镜像
-  - name: "Wind万得"
-    url: "TODO_REPLACE_WITH_WIND_RSS"
-    # 去 wechatrss.waytomaster.com 免费注册后搜索"Wind万得"获取 RSS 链接
+  - name: "36氪"
+    url: "https://www.36kr.com/feed"        # 官方免费 RSS（必须带 www，裸域已被反爬 JS 挑战拦截）
+  - name: "晚点LatePost"
+    url: "https://rsshub.app/latepost"      # RSSHub 路由（UTC 时间自动转北京时间；本机网络可能超时，GitHub Actions 海外可用）
+  - name: "钛媒体"
+    url: "https://www.tmtpost.com/rss"      # 官方免费 RSS
 
 # ---- 2. 大模型（AI 标题 + 论文式摘要 + 分类）---------------------
 # 本地运行：填入真实 api_key；GitHub Actions：通过 DEEPSEEK_API_KEY 环境变量注入
@@ -37,5 +39,6 @@ wechat:
 
 # ---- 4. 运行参数 --------------------------------------------------
 settings:
-  lookback_hours: 24      # 只收录最近 N 小时内发布的文章（CI 无持久状态，靠此防重复）
-  max_articles: 20        # 单期最多收录篇数；超限时 AI 预筛选选出最重要 N 篇
+  window_end: "08:40"     # 采集窗口截止点（北京时间）：前一日 08:40 ~ 当日 08:40 的推送
+  lookback_hours: 24       # 窗口跨度（小时），与 window_end 配合形成固定窗口
+  max_articles: 30         # 单期最多收录篇数；超限时 AI 预筛选选出最重要 N 篇
