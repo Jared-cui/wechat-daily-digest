@@ -44,11 +44,14 @@ AI 合成「今日总览」（整体主题 + 今日要点）
 在 `config.yaml` 的 `llm:` 填接口地址、Key、模型名（支持 DeepSeek / 通义 / 本地 Ollama 等 OpenAI 兼容接口）。
 不填或调用失败时会自动降级为「抽取式摘要」，保证每天仍有产出。
 
-### 3. 配置推送（默认企业微信 · 推荐群机器人 webhook）
-在 `config.yaml` 的 `wechat.type` 设为 `wecom`，并把 `wechat.wecom.mode` 设为 `webhook`（推荐路径，零开发）：
-- **群机器人（推荐，最简单）**：在企业微信里建一个群 → 右上角「…」→ 添加群机器人 → 复制 webhook 地址填到 `wechat.wecom.webhook`。推送会出现在这个群里。
-- **自建应用（备选，更正式）**：把 `mode` 改为 `app`，在企业管理后台「应用管理 → 自建」创建应用，拿到 `corpid` / `corpsecret` / `agentid`，接收人填 `touser`（或 `@all`）。
-> 若改回公众号客服消息，把 `type` 设为 `official` 并填 `appid`/`appsecret`/`openid`（注意 48 小时互动限制）。
+### 3. 配置推送（默认邮箱 · 推荐 SMTP）
+在 `config.yaml` 的 `wechat.type` 设为 `email`，并填 `wechat.email` 段：
+- **邮箱推送（推荐，稳定不受 48h 限制）**：填 `sender`（发件邮箱）/ `password`（SMTP 授权码，不是登录密码）/ `recipient`（收件邮箱）。
+  - 网易163：`smtp.163.com:465`（SSL）；QQ：`smtp.qq.com:465`（SSL）
+  - 授权码获取：登录邮箱 → 设置 → POP3/SMTP/IMAP → 开启「SMTP 服务」→ 按提示生成
+  - ⚠️ 这些凭据只写本地 `config.yaml`（已 gitignore，不入库）；云端 GitHub Actions 走 Secrets 单独注入
+- 若改用企业微信，把 `type` 设为 `wecom` 并填 `wechat.wecom.webhook`（群机器人地址）。
+- 若改回公众号客服消息，把 `type` 设为 `official` 并填 `appid`/`appsecret`/`openid`（注意 48 小时互动限制）。
 
 ### 4.（可选）托管 HTML，推送图文消息
 企业微信 markdown 已能承载总览+要点+链接；若想点开就看排版好的 HTML，把 `output/` 托管到公开地址（GitHub Pages / 腾讯云 COS），把前缀填进 `wechat.public_base_url`（官方客服消息模式用）。
@@ -77,13 +80,13 @@ python pipeline/test_push.py             # 一键测试推送（填好 webhook �
 - **重要性标注**：重大政策/突发/行业转折标为「★ 重磅」。
 - 顶部「AI 今日总览」为跨文章的全局合成。
 - **HTML 日报**分板块展示，每篇含：AI标题（可点击原文）+ 来源/发布时间 + 摘要 + 关键词 + AI读后感 + 阅读原文按钮。
-- **企业微信推送**为精简板块列表：板块标题 + ⭐/含金量分 + AI标题 + 一句话摘要 + 阅读链接，自动分块不超 4096 字节限制。
+- **邮箱推送**：整封 HTML 日报直接作为邮件正文发送（含总览 + 全部板块卡片），无大小/格式限制。
 
 ## 定时自动化
 
 ### GitHub Actions（推荐，云端运行，电脑关机也照推）
 - 仓库已配置 `.github/workflows/daily-digest.yml`，每天北京时间 **08:45** 自动运行。
-- 密钥通过 GitHub Secrets 注入（`DEEPSEEK_API_KEY`、`WECOM_WEBHOOK`），不入库。
+- 密钥通过 GitHub Secrets 注入（`DEEPSEEK_API_KEY`、`EMAIL_SMTP_HOST`、`EMAIL_SMTP_PORT`、`EMAIL_SENDER`、`EMAIL_PASSWORD`、`EMAIL_RECIPIENT`），不入库。
 - HTML 日报自动上传为 Artifact，保留 30 天。
 - 支持手动触发（Actions 页面 → Run workflow）。
 

@@ -711,6 +711,61 @@ def push_wecom(cfg, digest):
         return False
 
 
+# ---------- 推送：邮箱（SMTP，HTML 日报直接作为正文）----------
+def push_email(cfg, digest):
+    """通过 SMTP 发送 HTML 日报到指定邮箱。
+
+    配置位于 cfg['wechat']['email']：
+      smtp_host / smtp_port / use_ssl / sender / password / recipient / subject_prefix
+    支持环境变量 EMAIL_* 覆盖（GitHub Actions 注入 Secrets，本地 config.yaml 优先）。
+    """
+    em = (cfg.get("wechat") or {}).get("email", {})
+    # 环境变量覆盖（CI 用），本地 config 优先
+    for k, env in [("smtp_host", "EMAIL_SMTP_HOST"), ("smtp_port", "EMAIL_SMTP_PORT"),
+                   ("sender", "EMAIL_SENDER"), ("password", "EMAIL_PASSWORD"),
+                   ("recipient", "EMAIL_RECIPIENT"), ("subject_prefix", "EMAIL_SUBJECT_PREFIX")]:
+        v = os.environ.get(env)
+        if v:
+            em[k] = v
+    if not (em.get("sender") and em.get("password") and em.get("recipient")):
+        log("未配置邮箱推送凭据（wechat.email.sender/password/recipient），跳过推送。")
+        return False
+
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.header import Header
+    except ImportError:
+        log("缺少 smtplib/email 标准库（不应发生），跳过推送。")
+        return False
+
+    html = render_html(digest)
+    subject = f"{em.get('subject_prefix') or '📮 每日资讯 AI 精读'} {digest['date']}"
+    # 用 MIMEText 带 html 子类型，编码 utf-8
+    msg = MIMEText(html, "html", "utf-8")
+    msg["Subject"] = Header(subject, "utf-8")
+    msg["From"] = em["sender"]
+    msg["To"] = em["recipient"]
+
+    host = em.get("smtp_host") or "smtp.163.com"
+    port = int(em.get("smtp_port") or 465)
+    use_ssl = str(em.get("use_ssl", "true")).lower() in ("1", "true", "yes")
+    try:
+        if use_ssl:
+            s = smtplib.SMTP_SSL(host, port, timeout=30)
+        else:
+            s = smtplib.SMTP(host, port, timeout=30)
+            s.starttls()
+        s.login(em["sender"], em["password"])
+        s.sendmail(em["sender"], [em["recipient"]], msg.as_string())
+        s.quit()
+        log(f"邮箱推送成功 → {em['recipient']}（主题：{subject}）")
+        return True
+    except Exception as ex:
+        log(f"邮箱推送异常：{ex}")
+        return False
+
+
 # ---------- 演示数据（含金量版）----------
 DEMO_ARTICLES = [
     {
@@ -819,7 +874,6 @@ def main():
         env_webhook = os.environ.get("WECOM_WEBHOOK")
         if env_webhook:
             cfg.setdefault("wechat", {}).setdefault("wecom", {})["webhook"] = env_webhook
-
     demo = args.demo or not is_configured(cfg)
     if demo and not args.demo:
         log("未检测到有效 feeds 配置，进入演示模式（生成样例 HTML，不推送）。")
@@ -902,6 +956,8 @@ def main():
         wtype = (cfg.get("wechat") or {}).get("type", "official")
         if wtype == "wecom":
             push_wecom(cfg, digest)
+        elif wtype == "email":
+            push_email(cfg, digest)
         else:
             push_wechat(cfg, digest)
 

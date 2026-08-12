@@ -14,16 +14,16 @@
 | 采集窗口 | 固定窗口 [昨日 08:40, 今日 08:40]（北京时间，`settings.window_end`） | 覆盖"前一日 8:40-当日 8:40 的推送" |
 | AI 精读 | DeepSeek（api.deepseek.com/v1, model=deepseek-chat） | 超 30 篇先 AI 预筛选；逐篇生成 AI标题/摘要(≤200字)/关键词/读后感(≤200字)/分类/重要性/含金量分(0-100) |
 | 排序规则 | 分板块（金融财经/信息技术/商业企业/宏观政策/其他），**板块内按含金量分降序，板块间按最高分降序** | 阅读顺序即含金量递减 |
-| 推送方式 | 企业微信群机器人 webhook | 稳定，不受 48h 互动限制；推送为精简列表（标题+一句话+链接+含金量分） |
+| 推送方式 | **SMTP 邮箱**（163: smtp.163.com:465 SSL，HTML 日报作为正文整封发送） | 稳定不受 48h 限制，无大小限制；2026-08-12 由企微切换 |
 | 运行平台 | **GitHub Actions 为主**（云端，每天 08:45 BJ） | 电脑关机也能跑 |
 | 本地备选 | **WorkBuddy 自动化**（ID automation-1785765420226，每天 08:45 BJ） | GitHub 故障时兜底；需电脑开机 |
-| 仓库 | Jared-cui/wechat-daily-digest（私有） | 密钥通过 GitHub Secrets 注入 |
+| 仓库 | Jared-cui/wechat-daily-digest（**已改 Public**，2026-08-12） | 密钥通过 GitHub Secrets 注入，仓库内无任何凭据 |
 
 ## 关键约束
 
-1. **企业微信 markdown 单条上限 4096 字节** → 必须分块推送（已实现 `_blocks_for_wecom`）。
+1. **邮箱推送**：`push_email()` 用 SMTP 发送 HTML 日报正文；凭据在本地 `config.yaml`（gitignored）+ GitHub Secrets（EMAIL_* 环境变量），仓库内无凭据。
 2. **DeepSeek 402** = 余额不足（非代码问题），需充值。
-3. **webhook 地址**必须是 `qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...` 格式。
+3. **SMTP 授权码**：163/QQ 邮箱开启 SMTP 服务后生成（不是登录密码），163 用 smtp.163.com:465 SSL。
 4. **采集窗口是固定窗口**，不是滚动窗口：`compute_window()` 计算 [昨日 08:40, 今日 08:40]（北京时间），所有源的时间统一转北京时间比较；晚点 RSS 为 UTC 时间，钛媒体为 +0800，均已处理。
 5. **AI 预筛选**：采集文章数超 max_articles(30) 时，先 AI 预筛选选出最具新闻价值 N 篇，再逐篇深度精读，节省 API 成本。
 6. **每篇文章字段**：ai_title（AI提炼标题，不用原标题）/ refined（摘要≤200字）/ keywords（2-4个关键词）/ takeaway（AI读后感≤200字）/ score（含金量0-100）/ importance（重要/一般）。HTML 按板块+含金量倒序渲染。
@@ -71,14 +71,16 @@ requirements.txt       # feedparser / requests / pyyaml
 | Secret 名 | 用途 |
 |-----------|------|
 | `DEEPSEEK_API_KEY` | DeepSeek API 密钥 |
-| `WECOM_WEBHOOK` | 企业微信群机器人 webhook 地址 |
+| `EMAIL_SMTP_HOST` / `EMAIL_SMTP_PORT` | SMTP 服务器与端口（smtp.163.com / 465） |
+| `EMAIL_SENDER` / `EMAIL_PASSWORD` | 发件邮箱与 SMTP 授权码 |
+| `EMAIL_RECIPIENT` | 收件邮箱 |
 
 ## GitHub Pages（每日 HTML 日报在线查看）
 
 - 部署目标：`gh-pages` 分支
 - 访问地址：`https://jared-cui.github.io/wechat-daily-digest/`
 - `index.html` 始终为最新日报，历史日报以 `digest_YYYY-MM-DD.html` 归档
-- **前提**：仓库需设为 Public（免费 GitHub Pages），或账户有 GitHub Pro（私有仓库 Pages）
+- ✅ **已启用（2026-08-12）**：仓库已改 Public，Pages 已选 gh-pages 分支，全部页面 200 可访问
 
 ## 本地运行
 
