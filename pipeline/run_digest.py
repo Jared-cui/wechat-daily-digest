@@ -718,17 +718,20 @@ def push_wecom(cfg, digest):
 
 
 # ---------- 推送去重：今日已发送则跳过（GitHub 优先、本地兜底，只发一次）----------
+SENT_DIR = WORKSPACE  # 标记文件放仓库根目录（本地与云端相对路径一致）
+
+
 def _today_sent_marker(cfg):
-    """返回当日已发送标记文件路径（STATE_PATH 同目录 sent_YYYY-MM-DD.txt）。"""
+    """返回当日已发送标记文件路径（仓库根 sent_YYYY-MM-DD.txt）。"""
     date = datetime.datetime.now(BJ_TZ).strftime("%Y-%m-%d")
-    return ROOT / f"sent_{date}.txt"
+    return SENT_DIR / f"sent_{date}.txt"
 
 
 def _remote_sent_marker(cfg):
     """尝试从 GitHub 远端拉取当日 sent 标记（GitHub Actions 发送后提交到仓库）。
 
     返回 True 表示云端已发送过（本地应跳过）；False/None 表示未确认。
-    实现：`git fetch` 后读取 origin/main 分支上的 sent_<date>.txt。
+    实现：`git fetch` 后读取 origin/main 分支上的 sent_<date>.txt（仓库根）。
     """
     try:
         import subprocess
@@ -758,8 +761,13 @@ def _commit_sent_marker(cfg):
         import subprocess
         p = _today_sent_marker(cfg)
         p.write_text(datetime.datetime.now(BJ_TZ).strftime("%Y-%m-%d %H:%M"), encoding="utf-8")
-        subprocess.run(["git", "add", p.name], capture_output=True, timeout=10, check=False)
-        subprocess.run(["git", "commit", "-m", f"sent {p.stem}", "--allow-empty"],
+        rel = f"sent_{datetime.datetime.now(BJ_TZ).strftime('%Y-%m-%d')}.txt"
+        # 用仓库根相对路径 add（CI 与本地工作目录均为仓库根）
+        add = subprocess.run(["git", "add", "--", rel], capture_output=True, timeout=10)
+        if add.returncode != 0:
+            log(f"git add 标记失败：{add.stderr.decode('utf-8', 'ignore')[:100]}")
+            return False
+        subprocess.run(["git", "commit", "-m", f"sent {rel}"],
                        capture_output=True, timeout=10, check=False)
         r = subprocess.run(["git", "push", "origin", "main"],
                            capture_output=True, timeout=30)
