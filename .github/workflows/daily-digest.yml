@@ -1,13 +1,15 @@
 # 公众号每日摘要流水线 - GitHub Actions
-# 每天北京时间 08:45 自动运行（UTC 00:45）
-# 采集 RSS（虎嗅/36氪/晚点/钛媒体，窗口 前日08:40~当日08:40）-> DeepSeek AI 精读 -> 生成 HTML -> 企业微信推送
+# 每天北京时间 05:00 计划运行（UTC 21:00），考虑 GitHub 平台 2-3h 调度延迟，
+# 实际执行约 07:00-08:00，保证 09:00 前邮件送达。
+# 采集 RSS（虎嗅/36氪/晚点/钛媒体，窗口 前日08:40~当日08:40）-> DeepSeek AI 精读 -> 生成 HTML -> 邮箱推送
+# 发送去重：发送成功后将 sent_<date>.txt 提交回 main，供本地兜底链路识别"今日已发"
 
 name: 公众号每日摘要
 
 on:
   schedule:
-    # UTC 00:45 = 北京时间 08:45
-    - cron: '45 0 * * *'
+    # UTC 21:00 = 北京时间 05:00（提前量覆盖平台调度延迟，目标 09:00 前送达）
+    - cron: '0 21 * * *'
   # 支持手动触发（用于测试）
   workflow_dispatch:
   # push 触发（仅关键文件变更时，用于验证 CI 链路）
@@ -42,6 +44,11 @@ jobs:
       - name: 生成配置文件
         run: cp pipeline/config.example.yaml pipeline/config.yaml
 
+      - name: 配置 git 身份（发送标记需提交回 main）
+        run: |
+          git config user.name "digest-bot"
+          git config user.email "digest-bot@users.noreply.github.com"
+
       - name: 恢复去重缓存
         uses: actions/cache@v4
         with:
@@ -50,7 +57,7 @@ jobs:
           restore-keys: |
             digest-state-
 
-      # ===== 核心步骤：采集 + AI 摘要 + 邮箱推送 =====
+      # ===== 核心步骤：采集 + AI 摘要 + 邮箱推送（含云端发送标记）=====
       - name: 运行摘要流水线
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}

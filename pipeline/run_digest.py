@@ -38,13 +38,13 @@ STATE_PATH = ROOT / "state.json"
 _h = __import__("html")
 esc = lambda s: _h.escape(str(s or ""))
 
-# ---------- 分类体系 ----------
-CATEGORIES = ["金融财经", "信息技术", "商业企业", "宏观政策", "其他"]
+# ---------- 分类体系（2026-08-13 更新：宏观政策/经济金融/信息科技/商业行业/其他）----------
+CATEGORIES = ["宏观政策", "经济金融", "信息科技", "商业行业", "其他"]
 CAT_EMOJI = {
-    "金融财经": "📊",
-    "信息技术": "💻",
-    "商业企业": "🏭",
     "宏观政策": "📋",
+    "经济金融": "📊",
+    "信息科技": "💻",
+    "商业行业": "🏭",
     "其他": "📌",
 }
 CAT_ORDER = {c: i for i, c in enumerate(CATEGORIES)}
@@ -91,10 +91,17 @@ def normalize_category(cat):
         if c in cat or cat in c:
             return c
     # 常见同义词
-    syn = {"金融": "金融财经", "财经": "金融财经", "股市": "金融财经", "证券": "金融财经",
-           "科技": "信息技术", "互联网": "信息技术", "AI": "信息技术", "技术": "信息技术", "IT": "信息技术",
-           "产业": "商业企业", "商业": "商业企业", "企业": "商业企业", "消费": "商业企业",
-           "宏观": "宏观政策", "政策": "宏观政策", "政府": "宏观政策"}
+    syn = {"宏观": "宏观政策", "政策": "宏观政策", "政府": "宏观政策", "监管": "宏观政策",
+           "降准": "宏观政策", "降息": "宏观政策", "央行": "宏观政策", "利率": "宏观政策",
+           "财政": "宏观政策", "央行": "宏观政策",
+           "金融": "经济金融", "财经": "经济金融", "股市": "经济金融", "证券": "经济金融",
+           "银行": "经济金融", "经济": "经济金融", "基金": "经济金融", "投资": "经济金融",
+           "科技": "信息科技", "互联网": "信息科技", "AI": "信息科技", "技术": "信息科技",
+           "IT": "信息科技", "软件": "信息科技", "人工智能": "信息科技", "大模型": "信息科技",
+           "芯片": "信息科技", "算法": "信息科技", "数据": "信息科技", "算力": "信息科技",
+           "产业": "商业行业", "商业": "商业行业", "企业": "商业行业", "消费": "商业行业",
+           "零售": "商业行业", "行业": "商业行业", "品牌": "商业行业", "制造": "商业行业",
+           "汽车": "商业行业", "新能源": "商业行业", "电商": "商业行业", "公司": "商业行业"}
     for k, v in syn.items():
         if k in cat:
             return v
@@ -152,7 +159,9 @@ def parse_feed_date_bj(entry):
 def compute_window(cutoff_time="08:40", lookback_hours=24):
     """计算固定采集窗口 [start, end)（北京时间）。
 
-    默认窗口 = [昨日 08:40, 今日 08:40]，即「前一日 8:40 至当日 8:40 的推送」。
+    窗口恒为 [昨日 08:40, 今日 08:40)，不随运行时刻漂移——
+    即使清晨 07:00 运行，也以「当日 08:40」为截止、往前推 24h。
+    2026-08-13 修复：删除「now < end 顺延一天」逻辑（那会导致提前运行时窗口错位）。
     """
     now = datetime.datetime.now(BJ_TZ)
     try:
@@ -160,8 +169,6 @@ def compute_window(cutoff_time="08:40", lookback_hours=24):
     except Exception:
         hh, mm = 8, 40
     end = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-    if now < end:
-        end -= datetime.timedelta(days=1)  # 当前还没到当日截止点，窗口整体顺延一天
     start = end - datetime.timedelta(hours=int(lookback_hours or 24))
     return start, end
 
@@ -303,7 +310,7 @@ def summarize(article, llm_cfg):
         '  "keywords": ["2到4个关键词"],\n'
         '  "takeaway": "AI读后感（180字以内）：提炼方法论、行业分析框架、新闻可能引发的联动影响等，要有洞察、不空泛",\n'
         '  "one_liner": "一句话核心摘要（15-30字，用于推送列表，精炼抓人）",\n'
-        '  "category": "分类，必须是以下之一：金融财经、信息技术、商业企业、宏观政策、其他",\n'
+        '  "category": "分类，必须是以下之一：宏观政策、经济金融、信息科技、商业行业、其他",\n'
         '  "importance": "重要 或 一般（重大政策/突发/行业转折=重要，日常资讯/分析=一般）",\n'
         '  "score": "内容含金量评分（整数0-100，综合重磅程度/行业影响/信息增量评定，越大越值得读）"\n'
         "}\n只输出 JSON，不要多余文字。"
@@ -392,8 +399,8 @@ def _score(a):
 def group_by_category(articles):
     """按分类分组，组内按含金量 score 降序；返回 (grouped, cat_order)。
 
-    cat_order 按「板块内最高含金量」降序排列，空板块排最后，
-    使整体阅读顺序即为含金量递减。
+    cat_order 按固定顺序（宏观政策→经济金融→信息科技→商业行业→其他）排列，
+    空板块排最后；板块内文章仍按含金量降序。
     """
     grouped = {}
     for cat in CATEGORIES:
@@ -405,8 +412,7 @@ def group_by_category(articles):
         grouped[cat].append(a)
     for cat in grouped:
         grouped[cat].sort(key=_score, reverse=True)
-    cat_order = sorted(CATEGORIES, key=lambda c: max((_score(a) for a in grouped[c]), default=-1), reverse=True)
-    cat_order = [c for c in cat_order if grouped[c]] + [c for c in CATEGORIES if not grouped[c]]
+    cat_order = [c for c in CATEGORIES if grouped[c]] + [c for c in CATEGORIES if not grouped[c]]
     return grouped, cat_order
 
 
@@ -711,6 +717,73 @@ def push_wecom(cfg, digest):
         return False
 
 
+# ---------- 推送去重：今日已发送则跳过（GitHub 优先、本地兜底，只发一次）----------
+def _today_sent_marker(cfg):
+    """返回当日已发送标记文件路径（STATE_PATH 同目录 sent_YYYY-MM-DD.txt）。"""
+    date = datetime.datetime.now(BJ_TZ).strftime("%Y-%m-%d")
+    return ROOT / f"sent_{date}.txt"
+
+
+def _remote_sent_marker(cfg):
+    """尝试从 GitHub 远端拉取当日 sent 标记（GitHub Actions 发送后提交到仓库）。
+
+    返回 True 表示云端已发送过（本地应跳过）；False/None 表示未确认。
+    实现：`git fetch` 后读取 origin/main 分支上的 sent_<date>.txt。
+    """
+    try:
+        import subprocess
+        date = datetime.datetime.now(BJ_TZ).strftime("%Y-%m-%d")
+        fn = f"sent_{date}.txt"
+        # fetch 远程（限时，失败不阻塞）
+        subprocess.run(["git", "fetch", "origin", "main"],
+                       capture_output=True, timeout=20, check=False)
+        # 查看远程文件是否存在
+        r = subprocess.run(["git", "cat-file", "-e", f"origin/main:{fn}"],
+                           capture_output=True, timeout=10)
+        if r.returncode == 0:
+            log(f"检测到云端今日({date})已发送标记，跳过本地推送。")
+            return True
+    except Exception as ex:
+        log(f"云端发送标记检查失败（不影响流程）：{ex}")
+    return False
+
+
+def _commit_sent_marker(cfg):
+    """本地推送成功后，将 sent_<date>.txt 提交到 Git（供另一端去重）。
+
+    GitHub Actions 环境：提交后 push 到 main（下次 fetch 即可见）。
+    本地环境：push 失败时仅保留本地标记（当天重复运行仍可去重）。
+    """
+    try:
+        import subprocess
+        p = _today_sent_marker(cfg)
+        p.write_text(datetime.datetime.now(BJ_TZ).strftime("%Y-%m-%d %H:%M"), encoding="utf-8")
+        subprocess.run(["git", "add", p.name], capture_output=True, timeout=10, check=False)
+        subprocess.run(["git", "commit", "-m", f"sent {p.stem}", "--allow-empty"],
+                       capture_output=True, timeout=10, check=False)
+        r = subprocess.run(["git", "push", "origin", "main"],
+                           capture_output=True, timeout=30)
+        if r.returncode == 0:
+            log("已提交并推送发送标记，供另一端去重。")
+        else:
+            log("本地发送标记已写入（push 未成功，仅本端去重）。")
+        return True
+    except Exception as ex:
+        log(f"发送标记写入失败：{ex}")
+        return False
+
+
+def should_skip_send(cfg):
+    """判断今日是否已发送过（本地标记 or 云端标记任一命中即跳过）。"""
+    try:
+        if _today_sent_marker(cfg).exists():
+            log("今日已在本地发送过，跳过推送。")
+            return True
+    except Exception:
+        pass
+    return _remote_sent_marker(cfg)
+
+
 # ---------- 推送：邮箱（SMTP，HTML 日报直接作为正文）----------
 def push_email(cfg, digest):
     """通过 SMTP 发送 HTML 日报到指定邮箱。
@@ -792,7 +865,7 @@ DEMO_ARTICLES = [
         "keywords": ["大模型", "推理成本", "Agent"],
         "takeaway": "成本下降类新闻最值得用「S曲线」框架读：当某项技术的单位成本骤降，通常预示渗透率拐点。可以对比历史上光伏、存储芯片的价格崩塌如何改写行业格局，并留意应用层哪些场景先跑通商业闭环。",
         "one_liner": "推理成本一年降90%，AI从奢侈品走向基础设施",
-        "category": "信息技术",
+        "category": "信息科技",
         "importance": "重要",
         "score": 90,
     },
@@ -806,7 +879,7 @@ DEMO_ARTICLES = [
         "keywords": ["新能源", "财报", "毛利率"],
         "takeaway": "毛利率突破20%是规模效应的里程碑信号。读财报时可以把「毛利率」和「交付量增速」对照：若毛利率提升由规模摊薄驱动而非涨价，说明行业竞争仍烈，价格战风险未消。",
         "one_liner": "新能源车企Q3营收增65%，毛利率首破20%",
-        "category": "金融财经",
+        "category": "经济金融",
         "importance": "一般",
         "score": 72,
     },
@@ -820,7 +893,7 @@ DEMO_ARTICLES = [
         "keywords": ["白酒", "库存", "消费"],
         "takeaway": "渠道库存是消费品行业的『先行指标』：终端动销数据往往滞后，但渠道库存与价格倒挂会提前暴露周期拐点。可把它与居民消费数据、餐饮景气度做交叉验证，判断消费板块的真实水位。",
         "one_liner": "白酒渠道库存高企，经销商资金链承压",
-        "category": "商业企业",
+        "category": "商业行业",
         "importance": "一般",
         "score": 78,
     },
@@ -834,7 +907,7 @@ DEMO_ARTICLES = [
         "keywords": ["RAG", "检索", "工程"],
         "takeaway": "这篇文章给了一个工程方法论：问题定位先于方案替换。『换模型』是直觉反应，但系统性排查（数据切分→召回→重排→评估）才是ROI最高的路径——这套思路同样适用于任何系统优化的排障过程。",
         "one_liner": "RAG不准的根因在切分、混合召回与重排三处基本功",
-        "category": "信息技术",
+        "category": "信息科技",
         "importance": "一般",
         "score": 65,
     },
@@ -954,12 +1027,18 @@ def main():
 
     if not args.no_push and not demo:
         wtype = (cfg.get("wechat") or {}).get("type", "official")
-        if wtype == "wecom":
-            push_wecom(cfg, digest)
-        elif wtype == "email":
-            push_email(cfg, digest)
+        if should_skip_send(cfg):
+            log("今日日报已发送过（本地或云端），跳过推送。")
         else:
-            push_wechat(cfg, digest)
+            pushed = False
+            if wtype == "wecom":
+                pushed = push_wecom(cfg, digest)
+            elif wtype == "email":
+                pushed = push_email(cfg, digest)
+            else:
+                pushed = push_wechat(cfg, digest)
+            if pushed:
+                _commit_sent_marker(cfg)
 
 
 if __name__ == "__main__":
